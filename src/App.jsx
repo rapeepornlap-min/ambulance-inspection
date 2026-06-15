@@ -2,7 +2,12 @@ import { useState, useMemo, useEffect, useRef } from "react";
 
 const TODAY = new Date();
 TODAY.setHours(0, 0, 0, 0);
-const TODAY_STR = TODAY.toISOString().slice(0, 10);
+// ใช้เวลาไทย UTC+7
+function getTodayTH() {
+  const th = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  return th.toISOString().slice(0, 10);
+}
+const TODAY_STR = getTodayTH();
 
 function daysUntil(dateStr) {
   if (!dateStr) return null;
