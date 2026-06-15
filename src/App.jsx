@@ -158,52 +158,76 @@ export default function App() {
   const GS_URL = "https://script.google.com/macros/s/AKfycbwM19kxRy7v7k5sZTcP3dvluP4-_472ewvOASrXmapUmKMt2sRrWNUKVHClS_KoFXNRzg/exec";
 
   const isFirstLoad = useRef(true);
+  const isSaving = useRef(false);
 
-  // ─── โหลดข้อมูลจาก Google Sheets เมื่อเปิดแอป ────────────────
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const res = await fetch(GS_URL);
-        const json = await res.json();
-        if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-          const merged = AMBULANCES_INIT.map(init => {
-            const found = json.data.find(s => s.id === init.id);
-            return found ? { ...init, ...found } : init;
-          });
-          setAmbulances(merged);
-        }
-      } catch(e) {
-        console.log("โหลดข้อมูลไม่ได้ ใช้ค่า default");
-      } finally {
-        setStorageReady(true);
-        isFirstLoad.current = false;
+  // ─── โหลดข้อมูลจาก Google Sheets ─────────────────────────────
+  async function loadData(showLoading = false) {
+    if (showLoading) setStorageReady(false);
+    try {
+      const res = await fetch(GS_URL + "?t=" + Date.now());
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
+        // ใช้ข้อมูลจาก server โดยตรง — server คือ source of truth
+        const merged = AMBULANCES_INIT.map(init => {
+          const server = json.data.find(s => s.id === init.id);
+          if (!server) return init;
+          return {
+            ...init,
+            ...server,
+            equipment: server.equipment || init.equipment,
+            medications: server.medications || init.medications,
+            inspectionLogs: server.inspectionLogs || [],
+            monthlyAcks: server.monthlyAcks || {},
+            status: server.status || init.status,
+            notes: server.notes !== undefined ? server.notes : init.notes,
+          };
+        });
+        setAmbulances(merged);
       }
+    } catch(e) {
+      console.log("โหลดข้อมูลไม่ได้");
+    } finally {
+      setStorageReady(true);
+      isFirstLoad.current = false;
     }
-    loadData();
-  }, []);
+  }
 
-  // ─── บันทึกอัตโนมัติไปยัง Google Sheets ──────────────────────
+  // โหลดตอนเปิดแอป
+  useEffect(() => { loadData(true); }, []); // eslint-disable-line
+
+  // Auto-refresh ทุก 30 วินาที เพื่อดูข้อมูลใหม่จากคนอื่น
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isSaving.current) loadData(false);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line
+
+  // ─── บันทึกไปยัง Google Sheets ────────────────────────────────
+  async function saveToSheets(data) {
+    isSaving.current = true;
+    setSaveStatus("saving");
+    try {
+      await fetch(GS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ data }),
+      });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus(""), 2500);
+    } catch(e) {
+      setSaveStatus("error");
+    } finally {
+      isSaving.current = false;
+    }
+  }
+
+  // บันทึกอัตโนมัติเมื่อข้อมูลเปลี่ยน
   useEffect(() => {
     if (!storageReady) return;
     if (isFirstLoad.current) return;
-    let timer;
-    async function save() {
-      setSaveStatus("saving");
-      try {
-        await fetch(GS_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain" },
-          body: JSON.stringify({ data: ambulances }),
-        });
-        setSaveStatus("saved");
-        timer = setTimeout(() => setSaveStatus(""), 2500);
-      } catch(e) {
-        setSaveStatus("error");
-      }
-    }
-    save();
-    return () => clearTimeout(timer);
-  }, [ambulances, storageReady]);
+    saveToSheets(ambulances);
+  }, [ambulances, storageReady]); // eslint-disable-line
 
   // ─── แสดงหน้าโหลดขณะดึงข้อมูล ───────────────────────────────
   const amb = ambulances.find(a=>a.id===selectedId);
@@ -289,6 +313,8 @@ export default function App() {
     }).catch(()=>{});
     setDailyForm({inspector:"",mileage:"",fuel:"เต็ม (F)",notes:""});
     alert("✅ บันทึกการตรวจสอบประจำวันเรียบร้อยแล้ว");
+    // โหลดข้อมูลใหม่หลังบันทึก 3 วินาที เพื่อให้แน่ใจว่า sync แล้ว
+    setTimeout(() => loadData(false), 3000);
   }
 
   // ─── ผู้รับผิดชอบรถ รับทราบรายวัน ───────────────────────────
@@ -370,6 +396,7 @@ export default function App() {
               {saveStatus==="saving" && <span style={{color:"#93C5FD",fontSize:11}}>⏳ กำลังบันทึก...</span>}
               {saveStatus==="saved"  && <span style={{color:"#86EFAC",fontSize:11}}>✅ บันทึกแล้ว</span>}
               {saveStatus==="error"  && <span style={{color:"#FCA5A5",fontSize:11}}>⚠️ บันทึกไม่สำเร็จ</span>}
+              <button onClick={()=>loadData(false)} style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.3)",borderRadius:7,padding:"4px 10px",color:"#fff",fontSize:11,cursor:"pointer",fontWeight:600}}>🔄 รีเฟรช</button>
               <span style={{background:"rgba(16,185,129,.2)",border:"1px solid #6EE7B7",borderRadius:8,padding:"4px 12px",color:"#6EE7B7",fontWeight:700}}>✓ พร้อม {summary.filter(s=>!s.hasIssue).length} คัน</span>
               <span style={{background:"rgba(239,68,68,.2)",border:"1px solid #FCA5A5",borderRadius:8,padding:"4px 12px",color:"#FCA5A5",fontWeight:700}}>⚠ มีปัญหา {summary.filter(s=>s.hasIssue).length} คัน</span>
             </div>
