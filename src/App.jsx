@@ -155,7 +155,7 @@ export default function App() {
   const [reportMonth,   setReportMonth]   = useState(TODAY.getMonth()+1);
 
   // ─── Google Sheets API URL ─────────────────────────────────────
-  const GS_URL = "https://script.google.com/macros/s/AKfycbz_QXZehkry-GDBbpzCly-UsQVy5OMfieNNjKSviXC9ZBe_AiHT4NHBJbzWb8S_Qth0NA/exec";
+  const GS_URL = "https://script.google.com/macros/s/AKfycbyfi9hOqJval80e4DXPyw1skZf8WzD43k6ghKpQicDkrqMvhTwm5-DEfnl5dQgh0uj9/exec";
 
   const isFirstLoad = useRef(true);
   const isSaving = useRef(false);
