@@ -320,10 +320,24 @@ export default function App() {
   // ─── ผู้รับผิดชอบรถ รับทราบรายวัน ───────────────────────────
   function submitCrewAck(logId) {
     if(!crewAckInput.trim()){alert("กรุณาระบุชื่อผู้รับทราบ");return;}
+    const log = amb.inspectionLogs.find(l=>l.id===logId);
     upd(selectedId,a=>({
       ...a, inspectionLogs:a.inspectionLogs.map(l=>l.id===logId
         ?{...l,crewAck:true,crewAckBy:crewAckInput,crewAckTime:new Date().toLocaleString("th-TH")}:l)
     }));
+    // ส่ง ack ไปอัปเดต Google Sheets
+    if(log) {
+      fetch(GS_URL, {
+        method:"POST",
+        headers:{"Content-Type":"text/plain"},
+        body: JSON.stringify({
+          type:"ack",
+          date: log.date,
+          ambId: selectedId,
+          crewAckBy: crewAckInput,
+        })
+      }).catch(()=>{});
+    }
     setCrewAckModal(null); setCrewAckInput("");
   }
 
