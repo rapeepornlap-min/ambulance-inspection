@@ -167,22 +167,35 @@ export default function App() {
       const res = await fetch(GS_URL + "?t=" + Date.now());
       const json = await res.json();
       if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-        // ใช้ข้อมูลจาก server โดยตรง — server คือ source of truth
-        const merged = AMBULANCES_INIT.map(init => {
-          const server = json.data.find(s => s.id === init.id);
-          if (!server) return init;
-          return {
-            ...init,
-            ...server,
-            equipment: server.equipment || init.equipment,
-            medications: server.medications || init.medications,
-            inspectionLogs: server.inspectionLogs || [],
-            monthlyAcks: server.monthlyAcks || {},
-            status: server.status || init.status,
-            notes: server.notes !== undefined ? server.notes : init.notes,
-          };
+        setAmbulances(prev => {
+          return AMBULANCES_INIT.map(init => {
+            const server = json.data.find(s => s.id === init.id);
+            const local  = prev.find(p => p.id === init.id);
+            if (!server) return local || init;
+            // เอา logs ที่มากกว่ามาใช้ (ป้องกัน log หาย)
+            const serverLogs = server.inspectionLogs || [];
+            const localLogs  = local?.inspectionLogs || [];
+            const allLogs = [...serverLogs];
+            // เพิ่ม local logs ที่ไม่มีใน server
+            localLogs.forEach(ll => {
+              if (!allLogs.find(sl => sl.id === ll.id)) {
+                allLogs.push(ll);
+              }
+            });
+            // เรียงตามวันที่
+            allLogs.sort((a,b) => a.date.localeCompare(b.date));
+            return {
+              ...init,
+              ...server,
+              equipment:      server.equipment      || local?.equipment      || init.equipment,
+              medications:    server.medications    || local?.medications    || init.medications,
+              inspectionLogs: allLogs,
+              monthlyAcks:    { ...(local?.monthlyAcks||{}), ...(server.monthlyAcks||{}) },
+              status:         server.status         || local?.status         || init.status,
+              notes:          server.notes !== undefined ? server.notes : (local?.notes ?? init.notes),
+            };
+          });
         });
-        setAmbulances(merged);
       }
     } catch(e) {
       console.log("โหลดข้อมูลไม่ได้");
