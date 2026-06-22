@@ -194,7 +194,11 @@ export default function App() {
             return {
               ...init,
               ...server,
-              equipment:      server.equipment      || local?.equipment      || init.equipment,
+              equipment: (server.equipment || local?.equipment || init.equipment).map(se => {
+                // merge: เอาค่าจาก server/local แต่เติม field ใหม่ (เช่น hasPhotoSlot) จาก init เสมอ
+                const initEq = init.equipment.find(ie => ie.id === se.id);
+                return initEq ? { ...initEq, ...se, hasPhotoSlot: initEq.hasPhotoSlot } : se;
+              }),
               medications:    server.medications    || local?.medications    || init.medications,
               inspectionLogs: allLogs,
               monthlyAcks:    { ...(local?.monthlyAcks||{}), ...(server.monthlyAcks||{}) },
