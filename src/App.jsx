@@ -348,13 +348,17 @@ export default function App() {
       medSnapshot: snapshotMed(amb.medications),
       crewAck:false, crewAckBy:"", crewAckTime:"",
     };
-    upd(selectedId,a=>({...a,inspectionLogs:[...a.inspectionLogs,log]}));
-    // ส่ง log row ไปบันทึกใน Google Sheets แยกแถว
+    // คำนวณ ambulances ใหม่ก่อน แล้วใช้ค่านี้ทั้งใน setState และส่งไป Sheets (ป้องกัน stale closure)
+    const updatedAmbulances = ambulances.map(a =>
+      a.id === selectedId ? { ...a, inspectionLogs: [...a.inspectionLogs, log] } : a
+    );
+    setAmbulances(updatedAmbulances);
+    // ส่ง log row ไปบันทึกใน Google Sheets แยกแถว + อัปเดต AmbulanceData ด้วยข้อมูลล่าสุด
     fetch(GS_URL, {
       method:"POST",
       headers:{"Content-Type":"text/plain"},
       body: JSON.stringify({
-        data: ambulances,
+        data: updatedAmbulances,
         log: {
           date: log.date, ambId: amb.id,
           licensePlate: amb.licensePlate, crew: amb.crew,
@@ -375,11 +379,15 @@ export default function App() {
   function submitCrewAck(logId) {
     if(!crewAckInput.trim()){alert("กรุณาระบุชื่อผู้รับทราบ");return;}
     const log = amb.inspectionLogs.find(l=>l.id===logId);
-    upd(selectedId,a=>({
-      ...a, inspectionLogs:a.inspectionLogs.map(l=>l.id===logId
-        ?{...l,crewAck:true,crewAckBy:crewAckInput,crewAckTime:new Date().toLocaleString("th-TH")}:l)
-    }));
-    // ส่ง ack ไปอัปเดต Google Sheets
+    const updatedAmbulances = ambulances.map(a =>
+      a.id === selectedId
+        ? { ...a, inspectionLogs: a.inspectionLogs.map(l => l.id === logId
+            ? { ...l, crewAck:true, crewAckBy:crewAckInput, crewAckTime:new Date().toLocaleString("th-TH") }
+            : l) }
+        : a
+    );
+    setAmbulances(updatedAmbulances);
+    // ส่ง ack ไปอัปเดต InspectionLogs sheet + อัปเดต AmbulanceData ด้วยข้อมูลล่าสุด
     if(log) {
       fetch(GS_URL, {
         method:"POST",
@@ -389,6 +397,7 @@ export default function App() {
           date: log.date,
           ambId: selectedId,
           crewAckBy: crewAckInput,
+          data: updatedAmbulances,
         })
       }).catch(()=>{});
     }
