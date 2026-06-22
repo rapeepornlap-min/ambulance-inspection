@@ -88,7 +88,13 @@ const REAL_ITEMS = [
 ];
 
 function makeEquipment() {
-  return REAL_ITEMS.filter(i=>!i[5]).map(i=>({ id:"e"+i[0], no:i[0], name:i[1], stdQty:i[3], unit:i[4], eq_status:"complete", note:"" }));
+  const PHOTO_ITEMS = [29, 30, 31]; // ถัง O2 ใหญ่1, ใหญ่2, เล็ก — แนบรูปได้
+  return REAL_ITEMS.filter(i=>!i[5]).map(i=>({
+    id:"e"+i[0], no:i[0], name:i[1], stdQty:i[3], unit:i[4],
+    eq_status:"complete", note:"",
+    hasPhotoSlot: PHOTO_ITEMS.includes(i[0]),
+    photo: null, // base64 string ของรูปที่แนบ
+  }));
 }
 function makeMedications() {
   return REAL_ITEMS.filter(i=>i[5]).map(i=>{
@@ -148,6 +154,7 @@ export default function App() {
   const [editMed,   setEditMed]   = useState(null);
   const [medForm,   setMedForm]   = useState({name:"",stdQty:"",qty:"",unit:"",expiry:""});
   const [showEqModal, setShowEqModal] = useState(false);
+  const [viewPhoto, setViewPhoto] = useState(null);
   const [eqForm,    setEqForm]    = useState({name:"",stdQty:"",unit:"",note:""});
   // report selectors
   const [reportAmbId,   setReportAmbId]   = useState("AM-001");
@@ -301,6 +308,26 @@ export default function App() {
   function upd(id,fn){ setAmbulances(p=>p.map(a=>a.id===id?fn(a):a)); }
   function toggleEq(eqId){ upd(selectedId,a=>({...a,equipment:a.equipment.map(e=>e.id===eqId?{...e,eq_status:e.eq_status==="complete"?"damaged":"complete"}:e)})); }
   function updateEqNote(eqId,note){ upd(selectedId,a=>({...a,equipment:a.equipment.map(e=>e.id===eqId?{...e,note}:e)})); }
+
+  function handlePhotoUpload(eqId, file) {
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { alert("ไฟล์รูปใหญ่เกินไป (จำกัด 3MB)"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      upd(selectedId, a => ({
+        ...a,
+        equipment: a.equipment.map(e => e.id === eqId ? { ...e, photo: reader.result } : e)
+      }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removeEqPhoto(eqId) {
+    upd(selectedId, a => ({
+      ...a,
+      equipment: a.equipment.map(e => e.id === eqId ? { ...e, photo: null } : e)
+    }));
+  }
 
   // ─── Submit daily log ─────────────────────────────────────────
   function submitDailyLog() {
@@ -680,15 +707,15 @@ export default function App() {
               </div>
             </div>
             <div style={{overflowX:"auto"}}>
-              <div style={{minWidth:640}}>
-              <div style={{display:"grid",gridTemplateColumns:"40px 1fr 100px 110px 1fr 36px",gap:"0 8px",background:"#F8FAFC",padding:"7px 20px",fontSize:11,fontWeight:700,color:"#64748B",borderBottom:"1.5px solid #E2E8F0"}}>
-                <span>#</span><span>รายการ</span><span style={{textAlign:"center"}}>จำนวน/มาตรฐาน</span><span style={{textAlign:"center"}}>สถานะ</span><span>หมายเหตุ</span><span></span>
+              <div style={{minWidth:740}}>
+              <div style={{display:"grid",gridTemplateColumns:"40px 1fr 100px 110px 1fr 70px 36px",gap:"0 8px",background:"#F8FAFC",padding:"7px 20px",fontSize:11,fontWeight:700,color:"#64748B",borderBottom:"1.5px solid #E2E8F0"}}>
+                <span>#</span><span>รายการ</span><span style={{textAlign:"center"}}>จำนวน/มาตรฐาน</span><span style={{textAlign:"center"}}>สถานะ</span><span>หมายเหตุ</span><span style={{textAlign:"center"}}>รูปภาพ</span><span></span>
               </div>
               <div>
                 {filteredEq.map((eq,idx)=>{
                   const ok=eq.eq_status==="complete"; const s=EQ_BTN[eq.eq_status];
                   return (
-                    <div key={eq.id} style={{display:"grid",gridTemplateColumns:"40px 1fr 100px 110px 1fr 36px",gap:"0 8px",alignItems:"center",padding:"9px 20px",background:ok?(idx%2===0?"#fff":"#FAFAFA"):"#FFF5F5",borderBottom:"1px solid #F1F5F9"}}>
+                    <div key={eq.id} style={{display:"grid",gridTemplateColumns:"40px 1fr 100px 110px 1fr 70px 36px",gap:"0 8px",alignItems:"center",padding:"9px 20px",background:ok?(idx%2===0?"#fff":"#FAFAFA"):"#FFF5F5",borderBottom:"1px solid #F1F5F9"}}>
                       <span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>{eq.no}</span>
                       <span style={{fontSize:13,fontWeight:600,color:ok?"#1E293B":"#B91C1C",whiteSpace:"nowrap"}}>{eq.name}</span>
                       <div style={{textAlign:"center"}}><span style={{fontSize:12,color:"#64748B"}}>{eq.stdQty}</span><span style={{fontSize:10,color:"#94A3B8"}}> {eq.unit}</span></div>
@@ -697,6 +724,31 @@ export default function App() {
                       </div>
                       <input value={eq.note} onChange={e=>updateEqNote(eq.id,e.target.value)} placeholder="หมายเหตุ..."
                         style={{padding:"4px 8px",borderRadius:6,border:"1.5px solid "+(ok?"#E2E8F0":"#FCA5A5"),fontSize:12,width:"100%",boxSizing:"border-box",background:ok?"#fff":"#FFF0F0"}}/>
+                      <div style={{display:"flex",justifyContent:"center",alignItems:"center"}}>
+                        {eq.hasPhotoSlot ? (
+                          eq.photo ? (
+                            <div style={{position:"relative"}}>
+                              <img src={eq.photo} alt="อุปกรณ์" onClick={()=>setViewPhoto(eq.photo)}
+                                style={{width:40,height:40,borderRadius:6,objectFit:"cover",cursor:"pointer",border:"1.5px solid #CBD5E1"}}/>
+                              <button onClick={()=>removeEqPhoto(eq.id)} style={{
+                                position:"absolute",top:-6,right:-6,width:16,height:16,borderRadius:"50%",
+                                background:"#EF4444",color:"#fff",border:"none",fontSize:10,cursor:"pointer",
+                                display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1
+                              }}>✕</button>
+                            </div>
+                          ) : (
+                            <label style={{
+                              width:40,height:40,borderRadius:6,border:"1.5px dashed #94A3B8",
+                              display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",
+                              fontSize:16,color:"#94A3B8",background:"#F8FAFC"
+                            }}>
+                              📷
+                              <input type="file" accept="image/*" style={{display:"none"}}
+                                onChange={e=>handlePhotoUpload(eq.id, e.target.files[0])}/>
+                            </label>
+                          )
+                        ) : <span style={{fontSize:11,color:"#CBD5E1"}}>-</span>}
+                      </div>
                       <button onClick={()=>deleteEq(eq.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#CBD5E1",fontSize:14}}>🗑</button>
                     </div>
                   );
@@ -944,6 +996,14 @@ export default function App() {
               <button onClick={saveEq} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#1B3A6B",color:"#fff",fontWeight:700,cursor:"pointer"}}>💾 บันทึก</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── ดูรูปภาพขนาดเต็ม ── */}
+      {viewPhoto&&(
+        <div onClick={()=>setViewPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:20,cursor:"pointer"}}>
+          <img src={viewPhoto} alt="ดูรูปขนาดเต็ม" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:10,boxShadow:"0 10px 40px rgba(0,0,0,.5)"}}/>
+          <button onClick={()=>setViewPhoto(null)} style={{position:"fixed",top:20,right:20,width:40,height:40,borderRadius:"50%",background:"rgba(255,255,255,.9)",border:"none",fontSize:18,cursor:"pointer",fontWeight:700}}>✕</button>
         </div>
       )}
     </div>
