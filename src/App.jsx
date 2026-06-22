@@ -223,7 +223,7 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (!isSaving.current) loadData(false);
-    }, 15000);
+    }, 60000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line
   
