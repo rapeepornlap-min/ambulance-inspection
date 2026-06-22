@@ -229,15 +229,17 @@ export default function App() {
   
   // โหลดใหม่เมื่อ tab กลับมา focus (เปิดแอปจาก background)
   useEffect(() => {
-    function onFocus() { loadData(false); }
-    window.addEventListener("focus", onFocus);
+    function safeReload() { if (!isSaving.current) loadData(false); }
+    window.addEventListener("focus", safeReload);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") loadData(false);
+      if (document.visibilityState === "visible") safeReload();
     });
-    return () => window.removeEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", safeReload);
   }, []); // eslint-disable-line
 
   // ─── บันทึกไปยัง Google Sheets ────────────────────────────────
+  const saveTimerRef = useRef(null);
+
   async function saveToSheets(data) {
     isSaving.current = true;
     setSaveStatus("saving");
@@ -256,11 +258,16 @@ export default function App() {
     }
   }
 
-  // บันทึกอัตโนมัติเมื่อข้อมูลเปลี่ยน
+  // บันทึกอัตโนมัติเมื่อข้อมูลเปลี่ยน — ใส่ debounce 2 วินาที ป้องกันยิง request รัวๆ
+  // (เช่นตอนพิมพ์หมายเหตุทีละตัวอักษร หรือติ๊กเช็คหลายรายการต่อกัน)
   useEffect(() => {
     if (!storageReady) return;
     if (isFirstLoad.current) return;
-    saveToSheets(ambulances);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveToSheets(ambulances);
+    }, 2000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [ambulances, storageReady]); // eslint-disable-line
 
   // ─── แสดงหน้าโหลดขณะดึงข้อมูล ───────────────────────────────
@@ -334,7 +341,7 @@ export default function App() {
   }
 
   // ─── Submit daily log ─────────────────────────────────────────
-  function submitDailyLog() {
+  async function submitDailyLog() {
     if(!dailyForm.inspector.trim()){alert("กรุณาระบุชื่อผู้ตรวจสอบ");return;}
     if(!dailyForm.mileage.trim()){alert("กรุณาระบุเลขไมล์");return;}
     const log = {
@@ -353,26 +360,41 @@ export default function App() {
       a.id === selectedId ? { ...a, inspectionLogs: [...a.inspectionLogs, log] } : a
     );
     setAmbulances(updatedAmbulances);
-    // ส่ง log row ไปบันทึกใน Google Sheets แยกแถว + อัปเดต AmbulanceData ด้วยข้อมูลล่าสุด
-    fetch(GS_URL, {
-      method:"POST",
-      headers:{"Content-Type":"text/plain"},
-      body: JSON.stringify({
-        data: updatedAmbulances,
-        log: {
-          date: log.date, ambId: amb.id,
-          licensePlate: amb.licensePlate, crew: amb.crew,
-          inspector: log.inspector, mileage: log.mileage,
-          fuel: log.fuel, ambStatus: log.ambStatus,
-          damagedCount: log.damagedCount, expiredCount: log.expiredCount,
-          crewAck: false, crewAckBy: "", notes: log.notes,
-        }
-      })
-    }).catch(()=>{});
     setDailyForm({inspector:"",mileage:"",fuel:"เต็ม (F)",notes:""});
-    alert("✅ บันทึกการตรวจสอบประจำวันเรียบร้อยแล้ว");
-    // โหลดข้อมูลใหม่หลังบันทึก 3 วินาที เพื่อให้แน่ใจว่า sync แล้ว
-    setTimeout(() => loadData(false), 3000);
+    isSaving.current = true;
+    setSaveStatus("saving");
+
+    try {
+      const res = await fetch(GS_URL, {
+        method:"POST",
+        headers:{"Content-Type":"text/plain"},
+        body: JSON.stringify({
+          data: updatedAmbulances,
+          log: {
+            date: log.date, ambId: amb.id,
+            licensePlate: amb.licensePlate, crew: amb.crew,
+            inspector: log.inspector, mileage: log.mileage,
+            fuel: log.fuel, ambStatus: log.ambStatus,
+            damagedCount: log.damagedCount, expiredCount: log.expiredCount,
+            crewAck: false, crewAckBy: "", notes: log.notes,
+          }
+        })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setSaveStatus("saved");
+        alert("✅ บันทึกการตรวจสอบประจำวันเรียบร้อยแล้ว");
+      } else {
+        setSaveStatus("error");
+        alert("⚠️ บันทึกลง Google Sheets ไม่สำเร็จ: " + (json.error||"ไม่ทราบสาเหตุ") + "\n\nข้อมูลยังอยู่ในแอปนี้ ลองกดรีเฟรชเพื่อ sync ใหม่อีกครั้ง");
+      }
+    } catch(e) {
+      setSaveStatus("error");
+      alert("⚠️ เชื่อมต่อ Google Sheets ไม่ได้ ข้อมูลยังอยู่ในแอปนี้ครับ ลองกดรีเฟรชอีกครั้ง");
+    } finally {
+      isSaving.current = false;
+      setTimeout(()=>setSaveStatus(""), 3000);
+    }
   }
 
   // ─── ผู้รับผิดชอบรถ รับทราบรายวัน ───────────────────────────
@@ -387,8 +409,10 @@ export default function App() {
         : a
     );
     setAmbulances(updatedAmbulances);
+    setCrewAckModal(null); setCrewAckInput("");
     // ส่ง ack ไปอัปเดต InspectionLogs sheet + อัปเดต AmbulanceData ด้วยข้อมูลล่าสุด
     if(log) {
+      isSaving.current = true;
       fetch(GS_URL, {
         method:"POST",
         headers:{"Content-Type":"text/plain"},
@@ -399,9 +423,8 @@ export default function App() {
           crewAckBy: crewAckInput,
           data: updatedAmbulances,
         })
-      }).catch(()=>{});
+      }).catch(()=>{}).finally(()=>{ isSaving.current = false; });
     }
-    setCrewAckModal(null); setCrewAckInput("");
   }
 
   // ─── ผู้ควบคุมงาน รับทราบรายเดือน ───────────────────────────
