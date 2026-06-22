@@ -18,7 +18,7 @@ function expiryStatus(dateStr) {
   const days = daysUntil(dateStr);
   if (days === null) return "none";
   if (days < 0)  return "expired";
-  if (days <= 30) return "warning";
+  if (days <= 90) return "warning";
   return "ok";
 }
 
@@ -208,12 +208,22 @@ export default function App() {
   // โหลดตอนเปิดแอป
   useEffect(() => { loadData(true); }, []); // eslint-disable-line
 
-  // Auto-refresh ทุก 30 วินาที เพื่อดูข้อมูลใหม่จากคนอื่น
+  // Auto-refresh ทุก 15 วินาที
   useEffect(() => {
     const interval = setInterval(() => {
       if (!isSaving.current) loadData(false);
-    }, 30000);
+    }, 15000);
     return () => clearInterval(interval);
+  }, []); // eslint-disable-line
+  
+  // โหลดใหม่เมื่อ tab กลับมา focus (เปิดแอปจาก background)
+  useEffect(() => {
+    function onFocus() { loadData(false); }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") loadData(false);
+    });
+    return () => window.removeEventListener("focus", onFocus);
   }, []); // eslint-disable-line
 
   // ─── บันทึกไปยัง Google Sheets ────────────────────────────────
