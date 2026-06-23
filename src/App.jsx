@@ -191,6 +191,9 @@ export default function App() {
             });
             // เรียงตามวันที่
             allLogs.sort((a,b) => a.date.localeCompare(b.date));
+            // จำกัดจำนวน log ที่เก็บใน AmbulanceData (เซลล์เดียวของ Sheets จำกัด 50,000 ตัวอักษร)
+            // ประวัติแบบสมบูรณ์ไม่จำกัดจำนวน ยังอยู่ใน sheet "InspectionLogs" เสมอ ไม่มีข้อมูลถูกลบทิ้งจริง
+            const cappedLogs = allLogs.length > 60 ? allLogs.slice(allLogs.length - 60) : allLogs;
             return {
               ...init,
               ...server,
@@ -200,7 +203,7 @@ export default function App() {
                 return initEq ? { ...initEq, ...se, hasPhotoSlot: initEq.hasPhotoSlot } : se;
               }),
               medications:    server.medications    || local?.medications    || init.medications,
-              inspectionLogs: allLogs,
+              inspectionLogs: cappedLogs,
               monthlyAcks:    { ...(local?.monthlyAcks||{}), ...(server.monthlyAcks||{}) },
               status:         server.status         || local?.status         || init.status,
               notes:          server.notes !== undefined ? server.notes : (local?.notes ?? init.notes),
@@ -351,14 +354,17 @@ export default function App() {
       ambStatus:amb.status, notes:dailyForm.notes,
       damagedCount: amb.equipment.filter(e=>e.eq_status==="damaged").length,
       expiredCount:  amb.medications.filter(m=>expiryStatus(m.expiry)==="expired").length,
-      eqSnapshot:  snapshotEq(amb.equipment),
-      medSnapshot: snapshotMed(amb.medications),
+      // ไม่เก็บ eqSnapshot/medSnapshot ในนี้แล้ว เพราะทำให้ JSON ใหญ่เกิน 50,000 ตัวอักษร/cell ของ Sheets
+      // รายละเอียดอุปกรณ์-เวชภัณฑ์ ณ เวลานั้นดูได้จาก "สถานะรถ" และยอดสรุป damagedCount/expiredCount แทน
       crewAck:false, crewAckBy:"", crewAckTime:"",
     };
     // คำนวณ ambulances ใหม่ก่อน แล้วใช้ค่านี้ทั้งใน setState และส่งไป Sheets (ป้องกัน stale closure)
-    const updatedAmbulances = ambulances.map(a =>
-      a.id === selectedId ? { ...a, inspectionLogs: [...a.inspectionLogs, log] } : a
-    );
+    // จำกัด log ที่เก็บใน AmbulanceData ไว้ที่ 60 รายการล่าสุด/รถ (ประวัติฉบับเต็มอยู่ใน sheet InspectionLogs เสมอ)
+    const updatedAmbulances = ambulances.map(a => {
+      if (a.id !== selectedId) return a;
+      const newLogs = [...a.inspectionLogs, log];
+      return { ...a, inspectionLogs: newLogs.length > 60 ? newLogs.slice(newLogs.length - 60) : newLogs };
+    });
     setAmbulances(updatedAmbulances);
     setDailyForm({inspector:"",mileage:"",fuel:"เต็ม (F)",notes:""});
     isSaving.current = true;
