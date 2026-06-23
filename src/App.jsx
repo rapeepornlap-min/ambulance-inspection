@@ -124,6 +124,15 @@ const AMBULANCES_INIT = CREW_LIST.map(makeAmb);
 
 function snapshotEq(eq) { return eq.map(e=>({id:e.id,no:e.no,name:e.name,eq_status:e.eq_status,note:e.note})); }
 function snapshotMed(med){ return med.map(m=>({id:m.id,no:m.no,name:m.name,qty:m.qty,expiry:m.expiry,expStatus:expiryStatus(m.expiry)})); }
+
+// รูปภาพ (base64) มีขนาดใหญ่มาก ไม่ส่งไปเก็บใน Google Sheets (เซลล์เดียวจำกัด 50,000 ตัวอักษร)
+// รูปยังคงอยู่ในแอปของเครื่องที่ถ่าย/แนบไว้ตามปกติ เพียงไม่ sync ข้าม device ผ่าน Sheets
+function stripPhotosForSync(ambulances) {
+  return ambulances.map(a => ({
+    ...a,
+    equipment: a.equipment.map(e => e.photo ? { ...e, photo: null } : e),
+  }));
+}
 function monthKey(year,month){ return `${year}-${String(month).padStart(2,"0")}`; }
 function getMonthLogs(logs,year,month){ return logs.filter(l=>l.date.startsWith(monthKey(year,month))); }
 
@@ -193,7 +202,7 @@ export default function App() {
             allLogs.sort((a,b) => a.date.localeCompare(b.date));
             // จำกัดจำนวน log ที่เก็บใน AmbulanceData (เซลล์เดียวของ Sheets จำกัด 50,000 ตัวอักษร)
             // ประวัติแบบสมบูรณ์ไม่จำกัดจำนวน ยังอยู่ใน sheet "InspectionLogs" เสมอ ไม่มีข้อมูลถูกลบทิ้งจริง
-            const cappedLogs = allLogs.length > 60 ? allLogs.slice(allLogs.length - 60) : allLogs;
+            const cappedLogs = allLogs.length > 20 ? allLogs.slice(allLogs.length - 20) : allLogs;
             return {
               ...init,
               ...server,
@@ -250,7 +259,7 @@ export default function App() {
       await fetch(GS_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ data }),
+        body: JSON.stringify({ data: stripPhotosForSync(data) }),
       });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(""), 2500);
@@ -363,7 +372,7 @@ export default function App() {
     const updatedAmbulances = ambulances.map(a => {
       if (a.id !== selectedId) return a;
       const newLogs = [...a.inspectionLogs, log];
-      return { ...a, inspectionLogs: newLogs.length > 60 ? newLogs.slice(newLogs.length - 60) : newLogs };
+      return { ...a, inspectionLogs: newLogs.length > 20 ? newLogs.slice(newLogs.length - 20) : newLogs };
     });
     setAmbulances(updatedAmbulances);
     setDailyForm({inspector:"",mileage:"",fuel:"เต็ม (F)",notes:""});
@@ -375,7 +384,7 @@ export default function App() {
         method:"POST",
         headers:{"Content-Type":"text/plain"},
         body: JSON.stringify({
-          data: updatedAmbulances,
+          data: stripPhotosForSync(updatedAmbulances),
           log: {
             date: log.date, ambId: amb.id,
             licensePlate: amb.licensePlate, crew: amb.crew,
@@ -427,7 +436,7 @@ export default function App() {
           date: log.date,
           ambId: selectedId,
           crewAckBy: crewAckInput,
-          data: updatedAmbulances,
+          data: stripPhotosForSync(updatedAmbulances),
         })
       }).catch(()=>{}).finally(()=>{ isSaving.current = false; });
     }
