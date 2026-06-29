@@ -104,6 +104,32 @@ function makeMedications() {
   });
 }
 
+// ─── รายการตรวจสภาพรถพยาบาลประจำสัปดาห์ (19 รายการ) ─────────────
+const WEEKLY_ITEMS = [
+  [ 1,"ระดับน้ำมันหล่อลื่น"],
+  [ 2,"ระดับน้ำในหม้อน้ำ"],
+  [ 3,'ระดับน้ำมัน Power'],
+  [ 4,"ระดับน้ำมันเบรก/ครัช"],
+  [ 5,"สายพานพัดลม"],
+  [ 6,"ระบบเบรก"],
+  [ 7,"ระบบสตาร์ท"],
+  [ 8,"สัญญาณไฟหน้าสูงต่ำ"],
+  [ 9,"ไฟไซเรนหมุนบนหลังคา"],
+  [10,"ระบบที่ปัดน้ำฝน"],
+  [11,"น้ำฉีดล้างกระจกหน้า"],
+  [12,"วิทยุสื่อสาร/แตรรถยนต์"],
+  [13,"สัญญาณไฟฉุกเฉิน"],
+  [14,"สัญญาณไฟน้ำมันเครื่อง"],
+  [15,'ระดับน้ำมันเชื้อเพลิง 4*3/4*1/2*1/4'],
+  [16,"สภาพแบตเตอรี่/ระดับน้ำกลั่น"],
+  [17,"เกจวัดความร้อนของเครื่องยนต์"],
+  [18,"สภาพยาง/ลมยาง"],
+  [19,"ตรวจสอบรอยรั่วซึมของอุปกรณ์"],
+];
+function makeWeeklyChecklist() {
+  return WEEKLY_ITEMS.map(i => ({ id:"w"+i[0], no:i[0], name:i[1], status:"พร้อมใช้งาน", note:"" }));
+}
+
 // ─── 7 คัน ALS ทั้งหมด ───────────────────────────────────────
 const CREW_LIST = [
   {no:1,name:"สวัสดิ์"},{no:2,name:"ณัฐชานนท์"},{no:3,name:"กิตติชัย"},
@@ -118,6 +144,9 @@ function makeAmb({no,name}) {
     // inspectionLogs: บันทึกรายวัน
     // monthlyAcks: { "YYYY-MM": { supervisor, ackTime } } — ผู้ควบคุมงานรับทราบรายเดือน
     inspectionLogs:[], monthlyAcks:{},
+    // weeklyChecklist: สถานะปัจจุบันของรายการตรวจสภาพรถ 19 ข้อ
+    // weeklyLogs: ประวัติการตรวจสภาพรถแต่ละสัปดาห์ { id, weekDate, inspector, items:[{no,name,status,note}], notes }
+    weeklyChecklist: makeWeeklyChecklist(), weeklyLogs: [],
   };
 }
 const AMBULANCES_INIT = CREW_LIST.map(makeAmb);
@@ -164,6 +193,8 @@ export default function App() {
   const [medForm,   setMedForm]   = useState({name:"",stdQty:"",qty:"",unit:"",expiry:""});
   const [showEqModal, setShowEqModal] = useState(false);
   const [viewPhoto, setViewPhoto] = useState(null);
+  const [weeklyInspector, setWeeklyInspector] = useState("");
+  const [weeklyNotes, setWeeklyNotes] = useState("");
   const [eqForm,    setEqForm]    = useState({name:"",stdQty:"",unit:"",note:""});
   // report selectors
   const [reportAmbId,   setReportAmbId]   = useState("AM-001");
@@ -203,6 +234,15 @@ export default function App() {
             // จำกัดจำนวน log ที่เก็บใน AmbulanceData (เซลล์เดียวของ Sheets จำกัด 50,000 ตัวอักษร)
             // ประวัติแบบสมบูรณ์ไม่จำกัดจำนวน ยังอยู่ใน sheet "InspectionLogs" เสมอ ไม่มีข้อมูลถูกลบทิ้งจริง
             const cappedLogs = allLogs.length > 20 ? allLogs.slice(allLogs.length - 20) : allLogs;
+            // รวม weeklyLogs จาก server + local แบบเดียวกับ inspectionLogs
+            const serverWeeklyLogs = server.weeklyLogs || [];
+            const localWeeklyLogs  = local?.weeklyLogs || [];
+            const allWeeklyLogs = [...serverWeeklyLogs];
+            localWeeklyLogs.forEach(ll => {
+              if (!allWeeklyLogs.find(sl => sl.id === ll.id)) allWeeklyLogs.push(ll);
+            });
+            allWeeklyLogs.sort((a,b) => a.weekDate.localeCompare(b.weekDate));
+            const cappedWeeklyLogs = allWeeklyLogs.length > 20 ? allWeeklyLogs.slice(allWeeklyLogs.length - 20) : allWeeklyLogs;
             return {
               ...init,
               ...server,
@@ -213,6 +253,8 @@ export default function App() {
               }),
               medications:    server.medications    || local?.medications    || init.medications,
               inspectionLogs: cappedLogs,
+              weeklyChecklist: server.weeklyChecklist || local?.weeklyChecklist || init.weeklyChecklist,
+              weeklyLogs:      cappedWeeklyLogs,
               monthlyAcks:    { ...(local?.monthlyAcks||{}), ...(server.monthlyAcks||{}) },
               status:         server.status         || local?.status         || init.status,
               notes:          server.notes !== undefined ? server.notes : (local?.notes ?? init.notes),
@@ -330,6 +372,12 @@ export default function App() {
 
   function upd(id,fn){ setAmbulances(p=>p.map(a=>a.id===id?fn(a):a)); }
   function toggleEq(eqId){ upd(selectedId,a=>({...a,equipment:a.equipment.map(e=>e.id===eqId?{...e,eq_status:e.eq_status==="complete"?"damaged":"complete"}:e)})); }
+  function toggleWeeklyItem(itemId){
+    upd(selectedId,a=>({...a,weeklyChecklist:a.weeklyChecklist.map(w=>w.id===itemId?{...w,status:w.status==="พร้อมใช้งาน"?"ไม่พร้อม":"พร้อมใช้งาน"}:w)}));
+  }
+  function updateWeeklyNote(itemId,note){
+    upd(selectedId,a=>({...a,weeklyChecklist:a.weeklyChecklist.map(w=>w.id===itemId?{...w,note}:w)}));
+  }
   function updateEqNote(eqId,note){ upd(selectedId,a=>({...a,equipment:a.equipment.map(e=>e.id===eqId?{...e,note}:e)})); }
 
   function handlePhotoUpload(eqId, file) {
@@ -412,7 +460,47 @@ export default function App() {
     }
   }
 
-  // ─── ผู้รับผิดชอบรถ รับทราบรายวัน ───────────────────────────
+  // ─── บันทึกตรวจสภาพรถประจำสัปดาห์ ────────────────────────────
+  async function submitWeeklyCheck() {
+    if(!weeklyInspector.trim()){alert("กรุณาระบุชื่อผู้ตรวจ");return;}
+    const weekLog = {
+      id:"wlog_"+Date.now(), weekDate:TODAY_STR,
+      inspector: weeklyInspector,
+      items: amb.weeklyChecklist.map(w=>({no:w.no,name:w.name,status:w.status,note:w.note})),
+      notFoundCount: amb.weeklyChecklist.filter(w=>w.status==="ไม่พร้อม").length,
+      notes: weeklyNotes,
+    };
+    const updatedAmbulances = ambulances.map(a => {
+      if (a.id !== selectedId) return a;
+      const newLogs = [...a.weeklyLogs, weekLog];
+      return { ...a, weeklyLogs: newLogs.length > 20 ? newLogs.slice(newLogs.length - 20) : newLogs };
+    });
+    setAmbulances(updatedAmbulances);
+    setWeeklyInspector(""); setWeeklyNotes("");
+    isSaving.current = true;
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(GS_URL, {
+        method:"POST",
+        headers:{"Content-Type":"text/plain"},
+        body: JSON.stringify({ data: stripPhotosForSync(updatedAmbulances) })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setSaveStatus("saved");
+        alert("✅ บันทึกผลตรวจสภาพรถประจำสัปดาห์เรียบร้อยแล้ว");
+      } else {
+        setSaveStatus("error");
+        alert("⚠️ บันทึกลง Google Sheets ไม่สำเร็จ: " + (json.error||"ไม่ทราบสาเหตุ"));
+      }
+    } catch(e) {
+      setSaveStatus("error");
+      alert("⚠️ เชื่อมต่อ Google Sheets ไม่ได้ ข้อมูลยังอยู่ในแอปนี้ครับ");
+    } finally {
+      isSaving.current = false;
+      setTimeout(()=>setSaveStatus(""), 3000);
+    }
+  }
   function submitCrewAck(logId) {
     if(!crewAckInput.trim()){alert("กรุณาระบุชื่อผู้รับทราบ");return;}
     const log = amb.inspectionLogs.find(l=>l.id===logId);
@@ -609,6 +697,7 @@ export default function App() {
         {/* ══ TABS ════════════════════════════════════════════════ */}
         <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
           <button style={T("daily")}    onClick={()=>setActiveTab("daily")}>📝 บันทึกประจำวัน</button>
+          <button style={T("weekly")}   onClick={()=>setActiveTab("weekly")}>🚙 ตรวจสภาพรถประจำสัปดาห์</button>
           <button style={T("equipment")} onClick={()=>setActiveTab("equipment")}>🔧 รายการอุปกรณ์</button>
           <button style={T("medications")} onClick={()=>setActiveTab("medications")}>💊 เวชภัณฑ์</button>
           <button style={T("report")}   onClick={()=>setActiveTab("report")}>📊 รายงานรายเดือน</button>
@@ -740,6 +829,93 @@ export default function App() {
                 </div>
               ))}
               {amb.inspectionLogs.length===0&&<div style={{textAlign:"center",color:"#9CA3AF",padding:40}}>ยังไม่มีประวัติการตรวจสอบ</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ══ WEEKLY CHECKLIST TAB ════════════════════════════════ */}
+        {activeTab==="weekly"&&(
+          <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-start"}}>
+
+            {/* ── ฟอร์มตรวจสภาพรถ ──────────────────────────────────── */}
+            <div style={{flex:"1 1 340px",background:"#fff",borderRadius:14,padding:"20px 22px",boxShadow:"0 2px 12px rgba(0,0,0,.07)"}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#1B3A6B",marginBottom:4}}>🚙 ตรวจสภาพรถพยาบาลประจำสัปดาห์</div>
+              <div style={{fontSize:12,color:"#6B7280",marginBottom:14}}>
+                วันที่ {TODAY_STR} &nbsp;|&nbsp; รถ: <strong style={{color:"#1B3A6B"}}>{amb.id} — {amb.crew}</strong>
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:4}}>👤 ผู้ตรวจ *</label>
+                <input value={weeklyInspector} onChange={e=>setWeeklyInspector(e.target.value)}
+                  placeholder="ชื่อผู้ตรวจ"
+                  style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #D1D5DB",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+
+              {/* รายการตรวจ 19 ข้อ */}
+              <div style={{border:"1.5px solid #E2E8F0",borderRadius:10,overflow:"hidden",marginBottom:12}}>
+                <div style={{display:"grid",gridTemplateColumns:"32px 1fr 100px",gap:"0 6px",background:"#F8FAFC",padding:"7px 12px",fontSize:11,fontWeight:700,color:"#64748B",borderBottom:"1.5px solid #E2E8F0"}}>
+                  <span>#</span><span>รายการตรวจสภาพ</span><span style={{textAlign:"center"}}>สถานะ</span>
+                </div>
+                {amb.weeklyChecklist.map((w,idx)=>{
+                  const ok = w.status==="พร้อมใช้งาน";
+                  return (
+                    <div key={w.id} style={{display:"grid",gridTemplateColumns:"32px 1fr 100px",gap:"0 6px",alignItems:"center",padding:"7px 12px",background:ok?(idx%2===0?"#fff":"#FAFAFA"):"#FFF5F5",borderBottom:"1px solid #F1F5F9"}}>
+                      <span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>{w.no}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:ok?"#1E293B":"#B91C1C"}}>{w.name}</span>
+                      <div style={{display:"flex",justifyContent:"center"}}>
+                        <button onClick={()=>toggleWeeklyItem(w.id)} style={{
+                          padding:"4px 10px",borderRadius:16,fontSize:11,fontWeight:800,cursor:"pointer",
+                          background: ok?"#ECFDF5":"#FEE2E2", color: ok?"#065F46":"#B91C1C",
+                          border:"2px solid "+(ok?"#6EE7B7":"#FCA5A5"), minWidth:74, whiteSpace:"nowrap"
+                        }}>{ok?"✏️ พร้อมใช้งาน":"❌ ไม่พร้อม"}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:4}}>📌 หมายเหตุ</label>
+                <textarea value={weeklyNotes} onChange={e=>setWeeklyNotes(e.target.value)}
+                  placeholder="ระบุปัญหาหรือข้อสังเกต..."
+                  style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1.5px solid #D1D5DB",fontSize:13,boxSizing:"border-box",height:60,resize:"none"}}/>
+              </div>
+
+              <div style={{background:"#F8FAFC",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#475569",marginBottom:12}}>
+                <strong>สรุป:</strong> ✏️ พร้อมใช้งาน {amb.weeklyChecklist.filter(w=>w.status==="พร้อมใช้งาน").length} รายการ
+                &nbsp;|&nbsp; ❌ ไม่พร้อม <strong style={{color: amb.weeklyChecklist.filter(w=>w.status==="ไม่พร้อม").length>0?"#EF4444":"#10B981"}}>{amb.weeklyChecklist.filter(w=>w.status==="ไม่พร้อม").length}</strong> รายการ
+              </div>
+
+              <button onClick={submitWeeklyCheck} style={{width:"100%",padding:"11px",borderRadius:10,background:"#1B3A6B",color:"#fff",border:"none",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                💾 บันทึกผลตรวจสภาพรถสัปดาห์นี้
+              </button>
+            </div>
+
+            {/* ── ประวัติการตรวจสภาพรถ ─────────────────────────────── */}
+            <div style={{flex:"1 1 340px",background:"#fff",borderRadius:14,padding:"18px 20px",boxShadow:"0 2px 12px rgba(0,0,0,.07)",maxHeight:680,overflowY:"auto"}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#1B3A6B",marginBottom:14}}>
+                📋 ประวัติการตรวจสภาพรถ ({amb.weeklyLogs.length} ครั้ง)
+              </div>
+              {[...amb.weeklyLogs].reverse().map(wlog=>(
+                <div key={wlog.id} style={{borderRadius:10,border:"1.5px solid #E2E8F0",padding:"12px 14px",marginBottom:10,background:wlog.notFoundCount>0?"#FFF5F5":"#F0FDF4"}}>
+                  <div style={{fontWeight:700,color:"#1B3A6B",fontSize:13}}>📅 {wlog.weekDate}</div>
+                  <div style={{fontSize:12,color:"#374151",marginTop:2}}>👤 ผู้ตรวจ: <strong>{wlog.inspector}</strong></div>
+                  <div style={{marginTop:6}}>
+                    {wlog.notFoundCount>0
+                      ? <span style={{fontSize:11,background:"#FEE2E2",color:"#B91C1C",borderRadius:5,padding:"2px 8px",fontWeight:700}}>❌ ไม่พร้อม {wlog.notFoundCount} รายการ</span>
+                      : <span style={{fontSize:11,background:"#ECFDF5",color:"#065F46",borderRadius:5,padding:"2px 8px",fontWeight:700}}>✏️ พร้อมใช้งานทุกรายการ</span>}
+                  </div>
+                  {wlog.notFoundCount>0 && (
+                    <div style={{marginTop:6,fontSize:11,color:"#B91C1C"}}>
+                      {wlog.items.filter(it=>it.status==="ไม่พร้อม").map(it=>(
+                        <div key={it.no}>• {it.name}</div>
+                      ))}
+                    </div>
+                  )}
+                  {wlog.notes&&<div style={{fontSize:11,color:"#6B7280",marginTop:6}}>📌 {wlog.notes}</div>}
+                </div>
+              ))}
+              {amb.weeklyLogs.length===0&&<div style={{textAlign:"center",color:"#9CA3AF",padding:40}}>ยังไม่มีประวัติการตรวจสภาพรถ</div>}
             </div>
           </div>
         )}
