@@ -540,26 +540,62 @@ export default function App() {
     setMonthAckModal(null); setSupervisorInput("");
   }
 
-  // ─── Med / Eq CRUD ────────────────────────────────────────────
+  // ── Med / Eq CRUD ─────────────────────────────────────────
   function openAddMed(){ setEditMed(null); setMedForm({name:"",stdQty:"",qty:"",unit:"",expiry:""}); setShowMedModal(true); }
   function openEditMed(med){ setEditMed(med.id); setMedForm({name:med.name,stdQty:med.stdQty||"",qty:med.qty,unit:med.unit,expiry:med.expiry}); setShowMedModal(true); }
+
   function saveMed(){
     if(!medForm.name.trim())return;
-    upd(selectedId,a=>{
-      if(editMed) return{...a,medications:a.medications.map(m=>m.id===editMed?{...m,...medForm}:m)};
-      const maxNo=Math.max(...a.medications.map(m=>m.no||0),0);
-      return{...a,medications:[...a.medications,{id:"m"+Date.now(),no:maxNo+1,...medForm}]};
+    let updatedAmbulances;
+    setAmbulances(prev=>{
+      updatedAmbulances = prev.map(a=>{
+        if(a.id!==selectedId) return a;
+        if(editMed) return {...a,medications:a.medications.map(m=>m.id===editMed?{...m,...medForm}:m)};
+        const maxNo=Math.max(...a.medications.map(m=>m.no||0),0);
+        return {...a,medications:[...a.medications,{id:"m"+Date.now(),no:maxNo+1,...medForm}]};
+      });
+      return updatedAmbulances;
     });
     setShowMedModal(false);
+    // บันทึกทันที ไม่ต้องรอ debounce 2 วินาที ป้องกันข้อมูลหายถ้าผู้ใช้ปิดแอปเร็วเกินไป
+    setTimeout(() => saveToSheets(updatedAmbulances), 0);
   }
-  function deleteMed(id){ if(!window.confirm("ยืนยันลบ?"))return; upd(selectedId,a=>({...a,medications:a.medications.filter(m=>m.id!==id)})); }
+
+  function deleteMed(id){
+    if(!window.confirm("ยืนยันลบ?"))return;
+    let updatedAmbulances;
+    setAmbulances(prev=>{
+      updatedAmbulances = prev.map(a=>a.id===selectedId?{...a,medications:a.medications.filter(m=>m.id!==id)}:a);
+      return updatedAmbulances;
+    });
+    setTimeout(() => saveToSheets(updatedAmbulances), 0);
+  }
+
   function saveEq(){
     if(!eqForm.name.trim())return;
-    upd(selectedId,a=>{const maxNo=Math.max(...a.equipment.map(e=>e.no||0),0); return{...a,equipment:[...a.equipment,{id:"e"+Date.now(),no:maxNo+1,...eqForm,eq_status:"complete"}]};});
-    setShowEqModal(false); setEqForm({name:"",stdQty:"",unit:"",note:""});
+    let updatedAmbulances;
+    setAmbulances(prev=>{
+      updatedAmbulances = prev.map(a=>{
+        if(a.id!==selectedId) return a;
+        const maxNo=Math.max(...a.equipment.map(e=>e.no||0),0);
+        return {...a,equipment:[...a.equipment,{id:"e"+Date.now(),no:maxNo+1,...eqForm,eq_status:"complete"}]};
+      });
+      return updatedAmbulances;
+    });
+    setShowEqModal(false);
+    setEqForm({name:"",stdQty:"",unit:"",note:""});
+    setTimeout(() => saveToSheets(updatedAmbulances), 0);
   }
-  function deleteEq(id){ if(!window.confirm("ยืนยันลบ?"))return; upd(selectedId,a=>({...a,equipment:a.equipment.filter(e=>e.id!==id)})); }
 
+  function deleteEq(id){
+    if(!window.confirm("ยืนยันลบ?"))return;
+    let updatedAmbulances;
+    setAmbulances(prev=>{
+      updatedAmbulances = prev.map(a=>a.id===selectedId?{...a,equipment:a.equipment.filter(e=>e.id!==id)}:a);
+      return updatedAmbulances;
+    });
+    setTimeout(() => saveToSheets(updatedAmbulances), 0);
+  }
   // report
   const daysInMonth   = new Date(reportYear,reportMonth,0).getDate();
   const inspectedDays = new Set(reportLogs.map(l=>l.date)).size;
