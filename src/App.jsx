@@ -531,13 +531,19 @@ export default function App() {
   }
 
   // ─── ผู้ควบคุมงาน รับทราบรายเดือน ───────────────────────────
-  function submitMonthAck({ambId,year,month}) {
+ function submitMonthAck({ambId,year,month}) {
     if(!supervisorInput.trim()){alert("กรุณาระบุชื่อผู้ควบคุมงาน");return;}
     const key = monthKey(year,month);
-    upd(ambId,a=>({
-      ...a, monthlyAcks:{...a.monthlyAcks,[key]:{supervisor:supervisorInput,ackTime:new Date().toLocaleString("th-TH")}}
-    }));
+    let updatedAmbulances;
+    setAmbulances(prev=>{
+      updatedAmbulances = prev.map(a=>a.id===ambId?({
+        ...a, monthlyAcks:{...a.monthlyAcks,[key]:{supervisor:supervisorInput,ackTime:new Date().toLocaleString("th-TH")}}
+      }):a);
+      return updatedAmbulances;
+    });
     setMonthAckModal(null); setSupervisorInput("");
+    // บันทึกทันที ไม่ต้องรอ debounce 2 วินาที ป้องกันข้อมูลหายถ้าผู้ใช้ปิดแอปเร็วเกินไป
+    setTimeout(() => saveToSheets(updatedAmbulances), 0);
   }
 
   // ── Med / Eq CRUD ─────────────────────────────────────────
